@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulación de Física con Pelota y Arena</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 500px;
+            position: relative;
+        }
+        canvas {
+            background-color: #f0f0f0;
+            display: block;
+        }
+        .controls {
+            padding: 10px;
+            background-color: #eee;
+        }
+        .button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .slider-container {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+    <div class="controls">
+        <div>
+            <button id="clear-button" class="button">Limpiar Todo</button>
+            <button id="reset-ball" class="button">Reiniciar Pelota</button>
+            <button id="add-sandbox" class="button">Añadir Arena</button>
+        </div>
+        <div class="slider-container">
+            <label for="gravity">Gravedad:</label>
+            <input type="range" id="gravity" min="0" max="2" step="0.1" value="1">
+            <span id="gravity-value">1.0</span>
+        </div>
+        <div class="slider-container">
+            <label for="bounce">Rebote:</label>
+            <input type="range" id="bounce" min="0" max="1" step="0.1" value="0.7">
+            <span id="bounce-value">0.7</span>
+        </div>
+        <div class="slider-container">
+            <label for="friction">Fricción:</label>
+            <input type="range" id="friction" min="0" max="1" step="0.1" value="0.05">
+            <span id="friction-value">0.05</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.18.0/matter.min.js"></script>
+    <script>
+        // Configuración inicial
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        const container = document.getElementById('canvas-container');
+        
+        // Asegurarse de que el canvas ocupe todo el espacio disponible
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        
+        // Configuración de Matter.js
+        const Engine = Matter.Engine,
+              Render = Matter.Render,
+              Runner = Matter.Runner,
+              Bodies = Matter.Bodies,
+              Composite = Matter.Composite,
+              Body = Matter.Body,
+              Events = Matter.Events,
+              Mouse = Matter.Mouse,
+              MouseConstraint = Matter.MouseConstraint;
+        
+        // Crear el motor de física
+        const engine = Engine.create({
+            gravity: {
+                x: 0,
+                y: 1,
+                scale: 0.001
+            }
+        });
+        const world = engine.world;
+        
+        // Crear el renderizador
+        const render = Render.create({
+            canvas: canvas,
+            engine: engine,
+            options: {
+                width: canvas.width,
+                height: canvas.height,
+                wireframes: false,
+                background: 'transparent'
+            }
+        });
+        
+        Render.run(render);
+        
+        // Crear un runner para el motor
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+        
+        // Paredes para contener los objetos
+        const wallThickness = 50;
+        const walls = [
+            // Suelo
+            Bodies.rectangle(canvas.width / 2, canvas.height + wallThickness/2, canvas.width, wallThickness, { 
+                isStatic: true,
+                render: {
+                    fillStyle: '#333'
+                }
+            }),
+            // Pared izquierda
+            Bodies.rectangle(-wallThickness/2, canvas.height / 2, wallThickness, canvas.height, { 
+                isStatic: true,
+                render: {
+                    fillStyle: '#333'
+                }
+            }),
+            // Pared derecha
+            Bodies.rectangle(canvas.width + wallThickness/2, canvas.height / 2, wallThickness, canvas.height, { 
+                isStatic: true,
+                render: {
+                    fillStyle: '#333'
+                }
+            })
+        ];
+        
+        Composite.add(world, walls);
+        
+        // Crear la pelota
+        let ball;
+        
+        function createBall() {
+            return Bodies.circle(canvas.width / 2, 50, 20, {
+                restitution: 0.7,
+                friction: 0.05,
+                render: {
+                    fillStyle: '#e74c3c'
+                }
+            });
+            
+        }
+        
+        ball = createBall();
+        Composite.add(world, ball);
+        
+        // Añadir interacción con el mouse
+        const mouse = Mouse.create(canvas);
+        const mouseConstraint = MouseConstraint.create(engine, {
+            mouse: mouse,
+            constraint: {
+                stiffness: 0.2,
+                render: {
+                    visible: true
+                }
+            }
+        });
+        
+        Composite.add(world, mouseConstraint);
+        
+        // Variables para la funcionalidad de dibujar arena
+        let isDrawing = false;
+        let sandboxMode = false;
+        const sandParticles = [];
+        
+        // Función para añadir partículas de arena
+        function addSandParticle(x, y) {
+            const size = 5 + Math.random() * 5;
+            const sandParticle = Bodies.circle(x, y, size, {
+                restitution: 0.3,
+                friction: 0.8,
+                render: {
+                    fillStyle: `rgb(${200 + Math.random() * 55}, ${160 + Math.random() * 40}, ${100 + Math.random() * 40})`
+                }
+            });
+            sandParticles.push(sandParticle);
+            Composite.add(world, sandParticle);
+        }
+        
+        // Eventos del mouse para dibujar arena
+        canvas.addEventListener('mousedown', (e) => {
+            if (sandboxMode) {
+                isDrawing = true;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                addSandParticle(x, y);
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (sandboxMode && isDrawing) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                // Añadir múltiples partículas para hacer un trazo más denso
+                for (let i = 0; i < 3; i++) {
+                    const offsetX = (Math.random() - 0.5) * 10;
+                    const offsetY = (Math.random() - 0.5) * 10;
+                    addSandParticle(x + offsetX, y + offsetY);
+                }
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            isDrawing = false;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            isDrawing = false;
+        });
+        
+        // Controladores de botones
+        document.getElementById('clear-button').addEventListener('click', () => {
+            // Eliminar todos los objetos excepto las paredes y la pelota
+            for (let i = 0; i < sandParticles.length; i++) {
+                Composite.remove(world, sandParticles[i]);
+            }
+            sandParticles.length = 0;
+        });
+
+        // Variable para controlar el salto
+        let canJump = false;
+
+        let canUnJump = true;
+
+        // Limitar la velocidad de la pelota y detectar colisiones
+        Events.on(engine, 'beforeUpdate', () => {
+            // Limitar la velocidad máxima de la pelota
+            const maxVelocity = 10;
+            if (Math.abs(ball.velocity.x) > maxVelocity || Math.abs(ball.velocity.y) > maxVelocity) {
+                Body.setVelocity(ball, {
+                 x: Math.sign(ball.velocity.x) * Math.min(Math.abs(ball.velocity.x), maxVelocity),
+                    y: Math.sign(ball.velocity.y) * Math.min(Math.abs(ball.velocity.y), maxVelocity)
+                });
+            }
+        });
+
+        // Detectar colisiones para permitir saltar
+        Events.on(engine, 'collisionStart', (event) => {
+        event.pairs.forEach(({ bodyA, bodyB }) => {
+            if (bodyA === ball || bodyB === ball) {
+                canJump = true; // Permitir salto al colisionar con algo
+            }
+            });
+        });
+
+// Control de teclado
+const handleKeyboard = (ball) => {
+    const keys = {};
+    const jumpForce = 0.2;
+
+    document.addEventListener('keydown', (e) => keys[e.code] = true);
+    document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+    Events.on(engine, 'beforeUpdate', () => {
+        if (keys['ArrowLeft']) Body.applyForce(ball, ball.position, { x: -0.01, y: 0 });
+        if (keys['ArrowRight']) Body.applyForce(ball, ball.position, { x: 0.01, y: 0 });
+        if (keys['ArrowUp'] && canJump) {
+            Body.applyForce(ball, ball.position, { x: 0, y: -jumpForce });
+            canJump = false; // Desactivar el salto tras usarlo
+        }
+        if (keys['ArrowDown']) {
+            Body.applyForce(ball, ball.position, { x: 0, y: 0.1 });
+            canUnJump = false; // Desactivar el salto tras usarlo
+            canUnJump = true;
+        }
+    });
+};
+
+        
+        document.getElementById('reset-ball').addEventListener('click', () => {
+            
+            // Eliminar la pelota actual
+            Composite.remove(world, ball);
+            // Crear una nueva pelota
+            ball = createBall();
+            Composite.add(world, ball);
+            const jumpForce = 0.2;
+            handleKeyboard(ball);
+        });
+        
+        document.getElementById('add-sandbox').addEventListener('click', () => {
+            sandboxMode = !sandboxMode;
+            if (sandboxMode) {
+                document.getElementById('add-sandbox').textContent = "Modo Pelota";
+                document.getElementById('add-sandbox').style.backgroundColor = "#3498db";
+            } else {
+                document.getElementById('add-sandbox').textContent = "Añadir Arena";
+                document.getElementById('add-sandbox').style.backgroundColor = "#4CAF50";
+            }
+        });
+        
+        // Controles de los sliders
+        document.getElementById('gravity').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            engine.gravity.y = value;
+            document.getElementById('gravity-value').textContent = value.toFixed(1);
+        });
+        
+        document.getElementById('bounce').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            Body.set(ball, 'restitution', value);
+            document.getElementById('bounce-value').textContent = value.toFixed(1);
+        });
+        
+        document.getElementById('friction').addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            Body.set(ball, 'friction', value);
+            document.getElementById('friction-value').textContent = value.toFixed(2);
+        });
+
+        
+        
+        // Actualizar el renderizado cuando cambia el tamaño de la ventana
+        Events.on(engine, 'afterUpdate', () => {
+            if (render.options.width !== canvas.width || render.options.height !== canvas.height) {
+                render.options.width = canvas.width;
+                render.options.height = canvas.height;
+                render.canvas.width = canvas.width;
+                render.canvas.height = canvas.height;
+                Render.setPixelRatio(render, window.devicePixelRatio);
+            }
+        });
+
+        handleKeyboard(ball);
+
+    </script>
+</body>
+</html>
